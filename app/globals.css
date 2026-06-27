@@ -1,0 +1,78 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  color-scheme: dark;
+}
+
+* {
+  scroll-behavior: smooth;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  * {
+    animation: none !important;
+    transition: none !important;
+  }
+}
+
+body {
+  background-image:
+    radial-gradient(circle at 15% 0%, rgba(201, 162, 39, 0.08), transparent 40%),
+    radial-gradient(circle at 85% 100%, rgba(193, 87, 43, 0.10), transparent 45%);
+}
+
+/* The "corridor" signature element: a dotted route from sender to recipient,
+   with checkpoints that light up as a transfer progresses, echoing Arc's
+   transaction memo checkpoints. */
+.corridor-track {
+  position: relative;
+}
+.corridor-track::before {
+  content: "";
+  position: absolute;
+  left: 0;
+  right: 0;
+  top: 50%;
+  height: 2px;
+  background-image: linear-gradient(
+    to right,
+    rgba(247, 242, 231, 0.25) 0,
+    rgba(247, 242, 231, 0.25) 6px,
+    transparent 6px,
+    transparent 14px
+  );
+  background-size: 14px 2px;
+  transform: translateY(-50%);
+}
+
+.checkpoint {
+  position: relative;
+  z-index: 1;
+}
+
+.checkpoint-dot {
+  width: 14px;
+  height: 14px;
+  border-radius: 999px;
+  border: 2px solid rgba(247, 242, 231, 0.35);
+  background: #10211f;
+  transition: all 400ms ease;
+}
+
+.checkpoint-dot.active {
+  border-color: #c9a227;
+  background: #c9a227;
+  box-shadow: 0 0 0 4px rgba(201, 162, 39, 0.18);
+}
+
+.memo-stamp {
+  font-family: var(--font-mono);
+  letter-spacing: 0.02em;
+}
+
+.focus-ring:focus-visible {
+  outline: 2px solid #c9a227;
+  outline-offset: 2px;
+}
