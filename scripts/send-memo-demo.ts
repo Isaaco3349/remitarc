@@ -37,9 +37,17 @@ async function main() {
   console.log("  Memo ID:    ", result.memoId);
   console.log("  Explorer:   ", result.explorerUrl);
 
+  const txBlock = result.blockNumber !== "simulated"
+  ? BigInt(result.blockNumber)
+  : undefined;
+
   console.log(`\nLooking up memo logs for reference "${reference}"...`);
-  const logs = await lookupByReference(reference);
-  console.log(`  Found ${logs.length} matching Memo event(s) onchain.`);
+  const logs = await lookupByReference(reference, txBlock);
+  console.log(`  Found ${logs.length} matching Memo event(s) onchain. ✅`);
+  if (logs.length > 0) {
+    console.log("  Sender:", logs[0].args.sender);
+    console.log("  MemoId:", logs[0].args.memoId);
+  }
 }
 
 main().catch((err) => {

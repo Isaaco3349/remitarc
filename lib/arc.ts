@@ -197,9 +197,22 @@ export async function sendUsdcWithMemo(
  * "reconciliation" feature: anyone with a reference number can prove
  * a transfer happened without needing RemitArc's database.
  */
-export async function lookupByReference(reference: string) {
+export async function lookupByReference(
+  reference: string,
+  txBlockHint?: bigint
+) {
   const { publicClient } = getClients();
   const memoId = memoIdFromReference(reference);
+
+  const WINDOW = 9_000n;
+  const latestBlock = await publicClient.getBlockNumber();
+
+  let fromBlock: bigint;
+  if (txBlockHint != null) {
+    fromBlock = txBlockHint > 10n ? txBlockHint - 10n : 0n;
+  } else {
+    fromBlock = latestBlock > WINDOW ? latestBlock - WINDOW : 0n;
+  }
 
   const logs = await publicClient.getLogs({
     address: MEMO_ADDRESS,
@@ -209,7 +222,7 @@ export async function lookupByReference(reference: string) {
       inputs: memoAbi[2].inputs,
     },
     args: { memoId },
-    fromBlock: 0n,
+    fromBlock,
     toBlock: "latest",
   });
 
