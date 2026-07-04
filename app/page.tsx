@@ -6,8 +6,9 @@ import CorridorTrack from "@/components/CorridorTrack";
 
 const CORRIDOR_OPTIONS = [
   { code: "KE", label: "🇰🇪 Kenya — M-Pesa" },
-  { code: "NG", label: "🇳🇬 Nigeria — MTN MoMo" },
-  { code: "UG", label: "🇺🇬 Uganda — MTN MoMo" },
+  { code: "NG", label: "🇳🇬 Nigeria — MTN MoMo / Bank" },
+  { code: "GH", label: "🇬🇭 Ghana — MTN MoMo" },
+  { code: "CM", label: "🇨🇲 Cameroon — Orange Money / MTN MoMo" },
   { code: "EG", label: "🇪🇬 Egypt — Fawry / Bank" },
 ];
 
