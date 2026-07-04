@@ -1,14 +1,12 @@
 /**
- * Static reference data for the UAE -> Africa remittance corridor.
+ * Static reference data for the UAE -> Africa remittance corridors.
  *
- * Numbers below are illustrative placeholders sourced from typical published
- * remittance-cost ranges (e.g. World Bank Remittance Prices Worldwide
- * surveys and exchange-house rate cards). BEFORE recording the demo video,
- * replace these with a couple of real, citable data points for your chosen
- * corridor(s) so the comparison holds up to scrutiny.
+ * Exchange rates: Wise/Xe mid-market averages, July 2026
+ * Traditional fees: World Bank Remittance Prices Worldwide Q1-2025,
+ *   Monito/Profee/Afrotools corridor comparison data, July 2026
  */
 
-export type Corridor = "KE" | "NG" | "UG" | "EG";
+export type Corridor = "KE" | "NG" | "GH" | "CM" | "EG";
 
 export interface CorridorInfo {
   code: Corridor;
@@ -16,9 +14,9 @@ export interface CorridorInfo {
   currency: string;
   flag: string;
   cashOutMethod: string;
-  traditionalFeePct: number; // typical % fee via exchange house / MTO
+  traditionalFeePct: number;
   traditionalSpeedHours: number;
-  aedToLocalRate: number; // illustrative AED -> local currency rate
+  aedToLocalRate: number;
 }
 
 export const CORRIDORS: Record<Corridor, CorridorInfo> = {
@@ -28,9 +26,9 @@ export const CORRIDORS: Record<Corridor, CorridorInfo> = {
     currency: "KES",
     flag: "🇰🇪",
     cashOutMethod: "M-Pesa",
-    traditionalFeePct: 6.5,
+    traditionalFeePct: 4.5,   // WU blended fee+FX markup — Monito UAE→KE July 2026
     traditionalSpeedHours: 24,
-    aedToLocalRate: 35.1,
+    aedToLocalRate: 35.22,    // Wise 30-day avg July 2026
   },
   NG: {
     code: "NG",
@@ -38,19 +36,29 @@ export const CORRIDORS: Record<Corridor, CorridorInfo> = {
     currency: "NGN",
     flag: "🇳🇬",
     cashOutMethod: "MTN MoMo / Bank Transfer",
-    traditionalFeePct: 7.8,
+    traditionalFeePct: 5.5,   // World Bank SSA corridor avg Q1-2025
     traditionalSpeedHours: 48,
-    aedToLocalRate: 410.0,
+    aedToLocalRate: 374.24,   // Wise 30-day avg July 2026
   },
-  UG: {
-    code: "UG",
-    country: "Uganda",
-    currency: "UGX",
-    flag: "🇺🇬",
+  GH: {
+    code: "GH",
+    country: "Ghana",
+    currency: "GHS",
+    flag: "🇬🇭",
     cashOutMethod: "MTN MoMo",
-    traditionalFeePct: 7.2,
-    traditionalSpeedHours: 36,
-    aedToLocalRate: 985.0,
+    traditionalFeePct: 5.0,   // Afrotools Ghana remittance guide 2026
+    traditionalSpeedHours: 24,
+    aedToLocalRate: 3.08,     // Xe mid-market June 30 2026
+  },
+  CM: {
+    code: "CM",
+    country: "Cameroon",
+    currency: "XAF",
+    flag: "🇨🇲",
+    cashOutMethod: "Orange Money / MTN MoMo",
+    traditionalFeePct: 6.5,   // World Bank — Cameroon among highest-cost SSA corridors
+    traditionalSpeedHours: 48,
+    aedToLocalRate: 153.22,   // Wise 30-day avg AED→XAF July 2026
   },
   EG: {
     code: "EG",
@@ -58,15 +66,15 @@ export const CORRIDORS: Record<Corridor, CorridorInfo> = {
     currency: "EGP",
     flag: "🇪🇬",
     cashOutMethod: "Bank Transfer / Fawry",
-    traditionalFeePct: 5.4,
+    traditionalFeePct: 4.0,   // Profee corridor comparison 2026
     traditionalSpeedHours: 24,
-    aedToLocalRate: 13.4,
+    aedToLocalRate: 13.52,    // Xe mid-market July 2026
   },
 };
 
-const AED_TO_USDC_RATE = 0.2723; // ~1 AED in USD, illustrative peg-adjacent rate
-const REMITARC_FLAT_FEE_USDC = 0.5; // flat fee, in USDC, for the demo
-const REMITARC_FX_SPREAD_PCT = 0.3; // small spread vs. AED_TO_USDC_RATE
+const AED_TO_USDC_RATE = 0.2723;       // AED pegged to USD at 3.6725
+const REMITARC_FLAT_FEE_USDC = 0.5;
+const REMITARC_FX_SPREAD_PCT = 0.3;
 
 export interface Quote {
   corridor: CorridorInfo;
@@ -91,8 +99,6 @@ export function getQuote(corridor: Corridor, sendAed: number): Quote {
 
   const traditionalFeeAed = sendAed * (info.traditionalFeePct / 100);
   const traditionalFeeUsdEquivalent = traditionalFeeAed * AED_TO_USDC_RATE;
-  const remitArcFeeUsdEquivalent =
-    sendAed * AED_TO_USDC_RATE - netUsdc / (1 - REMITARC_FX_SPREAD_PCT / 100) + REMITARC_FLAT_FEE_USDC;
 
   return {
     corridor: info,
@@ -106,7 +112,7 @@ export function getQuote(corridor: Corridor, sendAed: number): Quote {
       traditionalFeeUsdEquivalent - REMITARC_FLAT_FEE_USDC,
       0
     ),
-    remitArcSpeedSeconds: 6,
+    remitArcSpeedSeconds: 12,  // Arc testnet confirmed ~12s finality
     traditionalSpeedHours: info.traditionalSpeedHours,
   };
 }
