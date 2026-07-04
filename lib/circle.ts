@@ -1,3 +1,5 @@
+import { createHash } from "crypto";
+
 const CIRCLE_API_BASE = "https://api.circle.com/v1/w3s";
 
 function circleConfigured() {
@@ -19,7 +21,7 @@ export interface CircleWallet {
 }
 
 function mockWallet(userRef: string): CircleWallet {
-  const hash = Buffer.from(userRef).toString("hex").padEnd(40, "0").slice(0, 40);
+  const hash = createHash("sha256").update(userRef).digest("hex").slice(0, 40);
   return {
     id: `mock-${userRef}`,
     address: `0x${hash}`,
