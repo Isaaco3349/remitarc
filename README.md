@@ -23,6 +23,8 @@ This last point is the core differentiator: remittance disputes are usually "pro
 
 ## Architecture
 
+![RemitArc Architecture](./docs/architecture-diagram.png)
+
 ```mermaid
 flowchart LR
     subgraph UAE["UAE - Sender side"]
