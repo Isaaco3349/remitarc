@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
-import { listTransactions } from "@/lib/store";
+import { getTransactions } from "@/lib/store";
 
 export async function GET() {
-  const transactions = await listTransactions();
-  return NextResponse.json({ transactions });
+  const records = await getTransactions();
+  return NextResponse.json({ records });
 }
