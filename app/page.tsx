@@ -196,7 +196,7 @@ export default function Home() {
             <Row label="Memo ID" value={result.record.memoId} mono />
           </div>
           <a
-            href={`/receive/${result.record.reference}`}
+            href={`/receive/${result.record.reference}?txHash=${result.record.txHash}&memoId=${result.record.memoId}&amount=${result.record.recipientLocalAmount?.toFixed(0)}&currency=${result.record.recipientCurrency}&cashOut=${encodeURIComponent(result.record.cashOutMethod)}&from=${encodeURIComponent(result.record.senderRef)}&status=settled&createdAt=${encodeURIComponent(result.record.createdAt)}`}
             className="inline-block mt-3 text-gold underline text-sm focus-ring"
           >
             View recipient receipt →
