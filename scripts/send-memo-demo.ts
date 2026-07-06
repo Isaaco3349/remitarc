@@ -1,7 +1,6 @@
 /**
- * Standalone demo: send 1 USDC on Arc Testnet via the Memo contract,
- * tagging it with a RemitArc-style reference, then verify the emitted
- * Memo event matches what was sent. Useful to sanity-check
+ * Standalone demo: send 1 USDC on Arc Testnet via a direct transfer,
+ * tagging it with a RemitArc-style reference. Useful to sanity-check
  * PLATFORM_PRIVATE_KEY / RPC_URL before relying on the web app, and as a
  * narratable clip for the submission video.
  *
@@ -12,7 +11,7 @@
  * wallet funded with testnet USDC from https://faucet.circle.com/
  */
 import "dotenv/config";
-import { sendUsdcWithMemo, lookupByReference } from "../lib/arc";
+import { sendUsdcWithMemo } from "../lib/arc";
 
 async function main() {
   const recipient = process.argv[2];
@@ -36,18 +35,6 @@ async function main() {
   console.log("  Block:      ", result.blockNumber);
   console.log("  Memo ID:    ", result.memoId);
   console.log("  Explorer:   ", result.explorerUrl);
-
-  const txBlock = result.blockNumber !== "simulated"
-  ? BigInt(result.blockNumber)
-  : undefined;
-
-  console.log(`\nLooking up memo logs for reference "${reference}"...`);
-  const logs = await lookupByReference(reference, txBlock);
-  console.log(`  Found ${logs.length} matching Memo event(s) onchain. ✅`);
-  if (logs.length > 0) {
-    console.log("  Sender:", logs[0].args.sender);
-    console.log("  MemoId:", logs[0].args.memoId);
-  }
 }
 
 main().catch((err) => {
