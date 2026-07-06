@@ -91,13 +91,13 @@ export default function ReceivePage() {
         {record.txHash && <Row label="Tx hash" value={record.txHash} mono />}
       </div>
 
-      
+      <a
       href={explorerUrl}
         target="_blank"
         rel="noopener noreferrer"
         className="block text-center mt-4 text-gold text-sm underline"
       >
-        {"Verify on Arc explorer →"}
+        Verify on Arc explorer →
       </a>
 
       <p className="text-xs text-sandlight/40 mt-6 text-center leading-relaxed">
