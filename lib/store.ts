@@ -1,16 +1,10 @@
-import { promises as fs } from "fs";
-import path from "path";
-
-/**
- * Minimal JSON-file-backed store so the hackathon demo has persistent
- * transaction history without standing up a database. Swap for Postgres /
- * Supabase / etc. post-hackathon — the interface below is the seam.
- */
+import { mkdir, readFile, writeFile } from "fs/promises";
+import { join } from "path";
 
 export interface RemittanceRecord {
-  reference: string; // e.g. "RA-2026-000123" — also the Arc memo source
+  reference: string;
   createdAt: string;
-  senderRef: string; // email/phone used to derive sender's Circle wallet
+  senderRef: string;
   recipientRef: string;
   corridor: string;
   sendAed: number;
@@ -18,51 +12,49 @@ export interface RemittanceRecord {
   recipientLocalAmount: number;
   recipientCurrency: string;
   cashOutMethod: string;
-  status: "pending" | "settled" | "cashed_out" | "failed";
-  txHash?: string;
-  explorerUrl?: string;
-  memoId?: string;
+  status: "settled" | "pending" | "failed";
+  txHash: string;
+  explorerUrl: string;
+  memoId: string;
 }
 
-const DATA_FILE = path.join(process.cwd(), ".data", "transactions.json");
+const DATA_DIR = join(process.cwd(), ".data");
+const DB_FILE = join(DATA_DIR, "transactions.json");
 
-async function ensureFile() {
-  await fs.mkdir(path.dirname(DATA_FILE), { recursive: true });
+async function readAll(): Promise<RemittanceRecord[]> {
   try {
-    await fs.access(DATA_FILE);
+    const raw = await readFile(DB_FILE, "utf8");
+    return JSON.parse(raw);
   } catch {
-    await fs.writeFile(DATA_FILE, "[]", "utf-8");
+    return [];
   }
 }
 
-export async function listTransactions(): Promise<RemittanceRecord[]> {
-  await ensureFile();
-  const raw = await fs.readFile(DATA_FILE, "utf-8");
-  return JSON.parse(raw) as RemittanceRecord[];
-}
-
 export async function saveTransaction(record: RemittanceRecord): Promise<void> {
-  await ensureFile();
-  const all = await listTransactions();
-  all.unshift(record);
-  await fs.writeFile(DATA_FILE, JSON.stringify(all, null, 2), "utf-8");
+  try {
+    await mkdir(DATA_DIR, { recursive: true });
+    const existing = await readAll();
+    existing.unshift(record);
+    await writeFile(DB_FILE, JSON.stringify(existing, null, 2));
+  } catch {
+    // Vercel read-only filesystem — skip persistence, settlement already happened onchain.
+    console.warn("Could not persist transaction record to disk (expected on Vercel).");
+  }
 }
 
-export async function getTransactionByReference(
-  reference: string
-): Promise<RemittanceRecord | undefined> {
-  const all = await listTransactions();
-  return all.find((t) => t.reference === reference);
+export async function getTransactions(): Promise<RemittanceRecord[]> {
+  try {
+    return await readAll();
+  } catch {
+    return [];
+  }
 }
 
-export async function updateTransactionStatus(
-  reference: string,
-  status: RemittanceRecord["status"]
-): Promise<void> {
-  const all = await listTransactions();
-  const idx = all.findIndex((t) => t.reference === reference);
-  if (idx >= 0) {
-    all[idx].status = status;
-    await fs.writeFile(DATA_FILE, JSON.stringify(all, null, 2), "utf-8");
+export async function getByReference(reference: string): Promise<RemittanceRecord | null> {
+  try {
+    const all = await readAll();
+    return all.find((r) => r.reference === reference) ?? null;
+  } catch {
+    return null;
   }
 }
