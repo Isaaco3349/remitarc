@@ -8,15 +8,12 @@ import {
   parseUnits,
   formatUnits,
   getAddress,
-  parseEventLogs,
   type Address,
   type Hex,
 } from "viem";
 import { privateKeyToAccount } from "viem/accounts";
 
 // --- Arc Testnet chain definition ---
-// Mirrors viem/chains' arcTestnet; defined locally so the app doesn't
-// depend on a specific viem version shipping the chain preset.
 export const arcTestnet = {
   id: 5042002,
   name: "Arc Testnet",
@@ -46,6 +43,37 @@ const erc20Abi = [
       { name: "amount", type: "uint256" },
     ],
     outputs: [{ name: "", type: "bool" }],
+  },
+  {
+    type: "function",
+    name: "transferFrom",
+    stateMutability: "nonpayable",
+    inputs: [
+      { name: "from", type: "address" },
+      { name: "to", type: "address" },
+      { name: "amount", type: "uint256" },
+    ],
+    outputs: [{ name: "", type: "bool" }],
+  },
+  {
+    type: "function",
+    name: "approve",
+    stateMutability: "nonpayable",
+    inputs: [
+      { name: "spender", type: "address" },
+      { name: "amount", type: "uint256" },
+    ],
+    outputs: [{ name: "", type: "bool" }],
+  },
+  {
+    type: "function",
+    name: "allowance",
+    stateMutability: "view",
+    inputs: [
+      { name: "owner", type: "address" },
+      { name: "spender", type: "address" },
+    ],
+    outputs: [{ name: "", type: "uint256" }],
   },
   {
     type: "function",
@@ -111,21 +139,15 @@ function getClients() {
   return { publicClient, walletClient, account };
 }
 
-/**
- * Builds a stable bytes32 memoId from a human-readable reference
- * (e.g. a RemitArc transfer reference like "RA-2026-000123").
- * Reusing the same reference always resolves to the same memoId,
- * which is what makes onchain reconciliation possible later.
- */
 export function memoIdFromReference(reference: string): Hex {
   return keccak256(stringToHex(reference));
 }
 
 export interface SendUsdcWithMemoParams {
   recipient: Address;
-  amountUsdc: string; // human units, e.g. "245.30"
-  reference: string; // e.g. "RA-2026-000123" — becomes the memoId
-  note?: string; // free-text memo payload, e.g. "payout:KE:mpesa:0712345678"
+  amountUsdc: string;
+  reference: string;
+  note?: string;
 }
 
 export interface SendUsdcWithMemoResult {
@@ -133,18 +155,46 @@ export interface SendUsdcWithMemoResult {
   blockNumber: string;
   memoId: Hex;
   explorerUrl: string;
+  approveTxHash?: Hex;
 }
 
 /**
- * Sends USDC on Arc Testnet via the Memo contract, attaching a structured
- * memoId + memo payload to the transfer. This is the core settlement
- * primitive RemitArc uses for every leg of a remittance (sender -> platform
- * liquidity wallet -> simulated cash-out), so every hop is reconcilable
- * onchain by reference number.
- *
- * Falls back to a simulated result if PLATFORM_PRIVATE_KEY is not configured,
- * so the app remains demoable before testnet credentials are wired up.
+ * Ensures the Memo contract is approved to move `amount` USDC on behalf of
+ * the platform wallet. Only sends an approve() tx if the current allowance
+ * is insufficient — avoids a redundant tx (and its gas/time cost) on repeat
+ * sends once approval is already in place.
  */
+async function ensureAllowance(
+  publicClient: ReturnType<typeof createPublicClient>,
+  walletClient: NonNullable<ReturnType<typeof getClients>["walletClient"]>,
+  owner: Address,
+  amount: bigint
+): Promise<Hex | undefined> {
+  const currentAllowance = (await publicClient.readContract({
+    address: USDC_ADDRESS,
+    abi: erc20Abi,
+    functionName: "allowance",
+    args: [owner, MEMO_ADDRESS],
+  })) as bigint;
+
+  if (currentAllowance >= amount) {
+    return undefined; // already approved enough, skip
+  }
+
+  // Approve a large amount so we don't have to re-approve every single send.
+  const approveAmount = amount * 1000n;
+
+  const approveHash = await walletClient.writeContract({
+    address: USDC_ADDRESS,
+    abi: erc20Abi,
+    functionName: "approve",
+    args: [MEMO_ADDRESS, approveAmount],
+  });
+
+  await publicClient.waitForTransactionReceipt({ hash: approveHash });
+  return approveHash;
+}
+
 export async function sendUsdcWithMemo(
   params: SendUsdcWithMemoParams
 ): Promise<SendUsdcWithMemoResult> {
@@ -153,7 +203,6 @@ export async function sendUsdcWithMemo(
   const explorerBase = arcTestnet.blockExplorers.default.url;
 
   if (!walletClient || !account) {
-    // Simulation mode — no funded testnet key configured yet.
     const fakeHash = keccak256(stringToHex(params.reference + Date.now()));
     return {
       txHash: fakeHash,
@@ -163,10 +212,24 @@ export async function sendUsdcWithMemo(
     };
   }
 
+  const amount = parseUnits(params.amountUsdc, 6);
+
+  // Make sure the Memo contract is allowed to move funds from our wallet
+  // before it tries to, otherwise transferFrom() reverts.
+  const approveTxHash = await ensureAllowance(
+    publicClient,
+    walletClient,
+    account.address,
+    amount
+  );
+
+  // Use transferFrom (not transfer) — memo() executes this call as itself,
+  // so it must move funds FROM our wallet explicitly via allowance,
+  // rather than trying to send from its own (empty) balance.
   const transferData = encodeFunctionData({
     abi: erc20Abi,
-    functionName: "transfer",
-    args: [params.recipient, parseUnits(params.amountUsdc, 6)],
+    functionName: "transferFrom",
+    args: [account.address, params.recipient, amount],
   });
 
   const memoBytes = stringToHex(params.note ?? params.reference);
@@ -188,15 +251,10 @@ export async function sendUsdcWithMemo(
     blockNumber: receipt.blockNumber.toString(),
     memoId,
     explorerUrl: `${explorerBase}/tx/${hash}`,
+    approveTxHash,
   };
 }
 
-/**
- * Looks up Memo events for a given reference number directly from Arc,
- * by re-deriving the memoId and querying onchain logs. This is the
- * "reconciliation" feature: anyone with a reference number can prove
- * a transfer happened without needing RemitArc's database.
- */
 export async function lookupByReference(
   reference: string,
   txBlockHint?: bigint
