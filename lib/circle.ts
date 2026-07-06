@@ -68,6 +68,12 @@ async function buildEntitySecretCiphertext(): Promise<string> {
 }
 
 export async function getOrCreateWallet(userRef: string): Promise<CircleWallet> {
+  console.log("CIRCLE ENV CHECK:", {
+    hasApiKey: Boolean(process.env.CIRCLE_API_KEY),
+    hasWalletSetId: Boolean(process.env.CIRCLE_WALLET_SET_ID),
+    hasEntitySecret: Boolean(process.env.CIRCLE_ENTITY_SECRET),
+  });
+
   if (!circleConfigured()) {
     return mockWallet(userRef);
   }
@@ -81,7 +87,7 @@ export async function getOrCreateWallet(userRef: string): Promise<CircleWallet> 
         idempotencyKey: randomUUID(),
         entitySecretCiphertext,
         walletSetId: process.env.CIRCLE_WALLET_SET_ID,
-        blockchains: ["ARC-TESTNET"], // ⚠️ unverified — confirm this is a supported value, see note above
+        blockchains: ["ARC-TESTNET"], // ⚠️ unverified — confirm this is a supported Circle blockchain value
         metadata: [{ name: userRef }],
       }),
     });
