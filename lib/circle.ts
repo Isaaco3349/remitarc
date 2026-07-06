@@ -1,9 +1,13 @@
-import { createHash } from "crypto";
+import { createHash, randomUUID, publicEncrypt, constants } from "crypto";
 
 const CIRCLE_API_BASE = "https://api.circle.com/v1/w3s";
 
 function circleConfigured() {
-  return Boolean(process.env.CIRCLE_API_KEY && process.env.CIRCLE_WALLET_SET_ID);
+  return Boolean(
+    process.env.CIRCLE_API_KEY &&
+    process.env.CIRCLE_WALLET_SET_ID &&
+    process.env.CIRCLE_ENTITY_SECRET
+  );
 }
 
 function authHeaders() {
@@ -30,17 +34,54 @@ function mockWallet(userRef: string): CircleWallet {
   };
 }
 
+// Fetches Circle's current RSA public key and encrypts your entity secret with it.
+// Circle requires a FRESH ciphertext per request — it cannot be cached/reused.
+async function buildEntitySecretCiphertext(): Promise<string> {
+  const res = await fetch(`${CIRCLE_API_BASE}/config/entity/publicKey`, {
+    method: "GET",
+    headers: authHeaders(),
+  });
+
+  if (!res.ok) {
+    throw new Error(`Failed to fetch Circle public key: ${res.status} ${await res.text()}`);
+  }
+
+  const { data } = await res.json();
+  const publicKey = data?.publicKey;
+  if (!publicKey) {
+    throw new Error("Circle public key response missing 'publicKey' field");
+  }
+
+  const entitySecret = process.env.CIRCLE_ENTITY_SECRET!;
+  const entitySecretBuffer = Buffer.from(entitySecret, "hex");
+
+  const encrypted = publicEncrypt(
+    {
+      key: publicKey,
+      padding: constants.RSA_PKCS1_OAEP_PADDING,
+      oaepHash: "sha256",
+    },
+    entitySecretBuffer
+  );
+
+  return encrypted.toString("base64");
+}
+
 export async function getOrCreateWallet(userRef: string): Promise<CircleWallet> {
   if (!circleConfigured()) {
     return mockWallet(userRef);
   }
   try {
+    const entitySecretCiphertext = await buildEntitySecretCiphertext();
+
     const res = await fetch(`${CIRCLE_API_BASE}/developer/wallets`, {
       method: "POST",
       headers: authHeaders(),
       body: JSON.stringify({
+        idempotencyKey: randomUUID(),
+        entitySecretCiphertext,
         walletSetId: process.env.CIRCLE_WALLET_SET_ID,
-        blockchains: ["ARC-TESTNET"],
+        blockchains: ["ARC-TESTNET"], // ⚠️ unverified — confirm this is a supported value, see note above
         metadata: [{ name: userRef }],
       }),
     });
