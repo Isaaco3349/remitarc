@@ -25,7 +25,7 @@ type Quote = {
 
 export default function Home() {
   const [corridor, setCorridor] = useState("KE");
-  const [sendAed, setSendAed] = useState(1000);
+  const [sendAed, setSendAed] = useState(10);
   const [senderRef, setSenderRef] = useState("amara@example.com");
   const [recipientRef, setRecipientRef] = useState("mother.amara@example.com");
   const [quote, setQuote] = useState<Quote | null>(null);
