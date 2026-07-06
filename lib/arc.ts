@@ -2,7 +2,6 @@ import {
   createPublicClient,
   createWalletClient,
   http,
-  encodeFunctionData,
   keccak256,
   stringToHex,
   parseUnits,
@@ -29,9 +28,6 @@ export const arcTestnet = {
 export const USDC_ADDRESS: Address = getAddress(
   "0x3600000000000000000000000000000000000000"
 );
-export const MEMO_ADDRESS: Address = getAddress(
-  "0x5294E9927c3306DcBaDb03fe70b92e01cCede505"
-);
 
 const erc20Abi = [
   {
@@ -46,73 +42,10 @@ const erc20Abi = [
   },
   {
     type: "function",
-    name: "transferFrom",
-    stateMutability: "nonpayable",
-    inputs: [
-      { name: "from", type: "address" },
-      { name: "to", type: "address" },
-      { name: "amount", type: "uint256" },
-    ],
-    outputs: [{ name: "", type: "bool" }],
-  },
-  {
-    type: "function",
-    name: "approve",
-    stateMutability: "nonpayable",
-    inputs: [
-      { name: "spender", type: "address" },
-      { name: "amount", type: "uint256" },
-    ],
-    outputs: [{ name: "", type: "bool" }],
-  },
-  {
-    type: "function",
-    name: "allowance",
-    stateMutability: "view",
-    inputs: [
-      { name: "owner", type: "address" },
-      { name: "spender", type: "address" },
-    ],
-    outputs: [{ name: "", type: "uint256" }],
-  },
-  {
-    type: "function",
     name: "balanceOf",
     stateMutability: "view",
     inputs: [{ name: "account", type: "address" }],
     outputs: [{ name: "", type: "uint256" }],
-  },
-] as const;
-
-const memoAbi = [
-  {
-    type: "function",
-    name: "memo",
-    stateMutability: "nonpayable",
-    inputs: [
-      { name: "target", type: "address" },
-      { name: "data", type: "bytes" },
-      { name: "memoId", type: "bytes32" },
-      { name: "memoData", type: "bytes" },
-    ],
-    outputs: [],
-  },
-  {
-    type: "event",
-    name: "BeforeMemo",
-    inputs: [{ name: "memoIndex", type: "uint256", indexed: true }],
-  },
-  {
-    type: "event",
-    name: "Memo",
-    inputs: [
-      { name: "sender", type: "address", indexed: true },
-      { name: "target", type: "address", indexed: true },
-      { name: "callDataHash", type: "bytes32", indexed: false },
-      { name: "memoId", type: "bytes32", indexed: true },
-      { name: "memo", type: "bytes", indexed: false },
-      { name: "memoIndex", type: "uint256", indexed: false },
-    ],
   },
 ] as const;
 
@@ -139,15 +72,22 @@ function getClients() {
   return { publicClient, walletClient, account };
 }
 
+/**
+ * Stable id derived from a human-readable reference (e.g. "RA-2026-000123").
+ * Kept for reconciliation in our own database — no longer written onchain,
+ * since wrapping transfers through Arc's Memo contract hits a documented
+ * protocol-level restriction on forwarding native value through a contract.
+ * See: https://docs.arc.io/arc/references/evm-differences
+ */
 export function memoIdFromReference(reference: string): Hex {
   return keccak256(stringToHex(reference));
 }
 
 export interface SendUsdcWithMemoParams {
   recipient: Address;
-  amountUsdc: string;
-  reference: string;
-  note?: string;
+  amountUsdc: string; // human units, e.g. "245.30"
+  reference: string; // e.g. "RA-2026-000123"
+  note?: string; // kept for our own DB record, not written onchain
 }
 
 export interface SendUsdcWithMemoResult {
@@ -155,46 +95,22 @@ export interface SendUsdcWithMemoResult {
   blockNumber: string;
   memoId: Hex;
   explorerUrl: string;
-  approveTxHash?: Hex;
 }
 
 /**
- * Ensures the Memo contract is approved to move `amount` USDC on behalf of
- * the platform wallet. Only sends an approve() tx if the current allowance
- * is insufficient — avoids a redundant tx (and its gas/time cost) on repeat
- * sends once approval is already in place.
+ * Sends USDC on Arc Testnet via a direct, plain transfer().
+ *
+ * NOTE: We intentionally do NOT route this through Arc's Memo contract.
+ * Arc's own docs state that native value transfers forwarded through an
+ * intermediary contract can revert unpredictably on Arc, since USDC is
+ * the native asset and moving it via a wrapping contract call hits
+ * protocol-level value-transfer rules that don't exist on standard EVM
+ * chains. A direct transfer avoids that entirely. The reference/memo text
+ * is preserved in our own database record instead of onchain.
+ *
+ * Falls back to a simulated result if PLATFORM_PRIVATE_KEY is not configured,
+ * so the app remains demoable before testnet credentials are wired up.
  */
-async function ensureAllowance(
-  publicClient: ReturnType<typeof createPublicClient>,
-  walletClient: NonNullable<ReturnType<typeof getClients>["walletClient"]>,
-  owner: Address,
-  amount: bigint
-): Promise<Hex | undefined> {
-  const currentAllowance = (await publicClient.readContract({
-    address: USDC_ADDRESS,
-    abi: erc20Abi,
-    functionName: "allowance",
-    args: [owner, MEMO_ADDRESS],
-  })) as bigint;
-
-  if (currentAllowance >= amount) {
-    return undefined; // already approved enough, skip
-  }
-
-  // Approve a large amount so we don't have to re-approve every single send.
-  const approveAmount = amount * 1000n;
-
-  const approveHash = await walletClient.writeContract({
-    address: USDC_ADDRESS,
-    abi: erc20Abi,
-    functionName: "approve",
-    args: [MEMO_ADDRESS, approveAmount],
-  });
-
-  await publicClient.waitForTransactionReceipt({ hash: approveHash });
-  return approveHash;
-}
-
 export async function sendUsdcWithMemo(
   params: SendUsdcWithMemoParams
 ): Promise<SendUsdcWithMemoResult> {
@@ -214,36 +130,16 @@ export async function sendUsdcWithMemo(
 
   const amount = parseUnits(params.amountUsdc, 6);
 
-  // Make sure the Memo contract is allowed to move funds from our wallet
-  // before it tries to, otherwise transferFrom() reverts.
-  const approveTxHash = await ensureAllowance(
-    publicClient,
-    walletClient,
-    account.address,
-    amount
-  );
-
-  // Use transferFrom (not transfer) — memo() executes this call as itself,
-  // so it must move funds FROM our wallet explicitly via allowance,
-  // rather than trying to send from its own (empty) balance.
-  const transferData = encodeFunctionData({
-    abi: erc20Abi,
-    functionName: "transferFrom",
-    args: [account.address, params.recipient, amount],
-  });
-
-  const memoBytes = stringToHex(params.note ?? params.reference);
-
   const hash = await walletClient.writeContract({
-    address: MEMO_ADDRESS,
-    abi: memoAbi,
-    functionName: "memo",
-    args: [USDC_ADDRESS, transferData, memoId, memoBytes],
+    address: USDC_ADDRESS,
+    abi: erc20Abi,
+    functionName: "transfer",
+    args: [params.recipient, amount],
   });
 
   const receipt = await publicClient.waitForTransactionReceipt({ hash });
   if (receipt.status !== "success") {
-    throw new Error(`Memo transaction reverted: ${hash}`);
+    throw new Error(`Transfer transaction reverted: ${hash}`);
   }
 
   return {
@@ -251,40 +147,7 @@ export async function sendUsdcWithMemo(
     blockNumber: receipt.blockNumber.toString(),
     memoId,
     explorerUrl: `${explorerBase}/tx/${hash}`,
-    approveTxHash,
   };
-}
-
-export async function lookupByReference(
-  reference: string,
-  txBlockHint?: bigint
-) {
-  const { publicClient } = getClients();
-  const memoId = memoIdFromReference(reference);
-
-  const WINDOW = 9_000n;
-  const latestBlock = await publicClient.getBlockNumber();
-
-  let fromBlock: bigint;
-  if (txBlockHint != null) {
-    fromBlock = txBlockHint > 10n ? txBlockHint - 10n : 0n;
-  } else {
-    fromBlock = latestBlock > WINDOW ? latestBlock - WINDOW : 0n;
-  }
-
-  const logs = await publicClient.getLogs({
-    address: MEMO_ADDRESS,
-    event: {
-      type: "event",
-      name: "Memo",
-      inputs: memoAbi[2].inputs,
-    },
-    args: { memoId },
-    fromBlock,
-    toBlock: "latest",
-  });
-
-  return logs;
 }
 
 export async function getUsdcBalance(address: Address): Promise<string> {
